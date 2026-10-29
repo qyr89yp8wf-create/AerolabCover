@@ -56,6 +56,17 @@
     text-shadow: 0 0.06em 0.12em rgb(0 0 0 / 0.35), 0 0.12em 0.5em rgb(0 0 0 / 0.35);
     pointer-events: none;
   }
+  .card .loading {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    margin: 0;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgb(0 0 0 / 0.5);
+    color: #ffffff;
+    font-size: 12px;
+  }
 
   .sidebar {
     display: flex;
@@ -120,11 +131,11 @@
 <main class="preview">
   <section class="block">
     <h2>实际端砚中封面图的大小</h2>
-    <div class="card small"><img id="smallImg" alt="" hidden><p class="title" id="smallTitle">书生·扶摇</p></div>
+    <div class="card small"><img id="smallImg" alt="" hidden><p class="title" id="smallTitle">书生·扶摇</p><p class="loading" hidden></p></div>
   </section>
   <section class="block">
     <h2>原图大小</h2>
-    <div class="card" id="largeCard"><img id="largeImg" alt="" hidden><p class="title" id="largeTitle">书生·扶摇</p></div>
+    <div class="card" id="largeCard"><img id="largeImg" alt="" hidden><p class="title" id="largeTitle">书生·扶摇</p><p class="loading" hidden></p></div>
   </section>
 </main>
 
@@ -173,12 +184,32 @@
   }
   setLargeSize(960, 540);
 
-  largeImg.addEventListener('load', () => setLargeSize(largeImg.naturalWidth, largeImg.naturalHeight));
+  // 网页版的原图下载慢：0.2 秒内没加载完，就在两张预览图左上角显示“加载中…”
+  const LOADING_DELAY_MS = 200;
+  const loadingEls = document.querySelectorAll('.card .loading');
+  let loadingTimer = null;
+
+  function setLoading(text) {
+    clearTimeout(loadingTimer);
+    loadingEls.forEach((el) => {
+      el.textContent = text;
+      el.hidden = !text;
+    });
+  }
+
+  largeImg.addEventListener('load', () => {
+    setLargeSize(largeImg.naturalWidth, largeImg.naturalHeight);
+    setLoading('');
+  });
+  largeImg.addEventListener('error', () => setLoading('加载失败'));
 
   function select(item) {
     selectedName = item.name;
+    setLoading('');
+    loadingTimer = setTimeout(() => setLoading('加载中…'), LOADING_DELAY_MS);
     smallImg.src = item.url;
     largeImg.src = item.url;
+    if (largeImg.complete && largeImg.naturalWidth) setLoading('');
     smallImg.hidden = false;
     largeImg.hidden = false;
     document.querySelectorAll('.item').forEach((el) => {
