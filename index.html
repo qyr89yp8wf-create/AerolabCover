@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>书生·扶摇封面预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- 字体异步加载：打不开 Google 字体时不卡住页面，直接用系统字体 -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" media="print" onload="this.media='all'">
+<style>
+  /* 布局：左侧上下两张预览（端砚实际尺寸、原图大小），右侧候选图列表（推荐图 / 其它图） */
+  :root {
+    --bg: #e9edf1;
+    --panel: #f7f9fb;
+    --line: #d5dce4;
+    --fg: #26303c;
+    --muted: #6a7582;
+    --accent: #3e6a99;
+    --on-accent: #ffffff;
+    --frame: #cfd7e0;
+    --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+  }
+
+  .preview {
+    overflow: auto;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 36px;
+  }
+  .block h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+
+  .card { position: relative; flex: none; overflow: hidden; background: var(--frame); }
+  .card.small { width: 414px; height: 180px; border-radius: 8px; }
+  .card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card .title {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    color: #ffffff;
+    font-weight: 700;
+    white-space: nowrap;
+    text-shadow: 0 0.06em 0.12em rgb(0 0 0 / 0.35), 0 0.12em 0.5em rgb(0 0 0 / 0.35);
+    pointer-events: none;
+  }
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .sidebar header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar h1 { margin: 0; font-size: 16px; }
+  .sidebar header button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: var(--on-accent);
+    cursor: pointer;
+  }
+  .sidebar header button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .lists { overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 24px; }
+  .group h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
+  .item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .item img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--frame);
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+  .item span { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item[aria-pressed="true"] img, .item:focus-visible img { outline-color: var(--accent); }
+  .item:focus-visible { outline: none; }
+  .empty { margin: 0; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="preview">
+  <section class="block">
+    <h2>实际端砚中封面图的大小</h2>
+    <div class="card small"><img id="smallImg" alt="" hidden><p class="title" id="smallTitle">书生·扶摇</p></div>
+  </section>
+  <section class="block">
+    <h2>原图大小</h2>
+    <div class="card" id="largeCard"><img id="largeImg" alt="" hidden><p class="title" id="largeTitle">书生·扶摇</p></div>
+  </section>
+</main>
+
+<aside class="sidebar">
+  <header>
+    <h1>候选图</h1>
+    <button type="button" id="pick">选择文件夹</button>
+  </header>
+  <div class="lists">
+    <p class="empty" id="hint">点“选择文件夹”，选中“封面图\候选图”。</p>
+    <section class="group"><h3>推荐图</h3><div class="grid" id="recommended"></div></section>
+    <section class="group"><h3>其它图</h3><div class="grid" id="others"></div></section>
+  </div>
+  <input type="file" id="dirInput" webkitdirectory multiple hidden>
+</aside>
+
+<script>
+  // 端砚卡片的实际尺寸和标题字号；原图上的标题按面积等比放大，保证标题占画面的比例不变
+  const SMALL_W = 414;
+  const SMALL_H = 180;
+  const SMALL_TITLE_PX = 22;
+  const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif|bmp)$/i;
+  const POLL_MS = 3000;
+
+  const $ = (id) => document.getElementById(id);
+  const smallImg = $('smallImg');
+  const largeImg = $('largeImg');
+  const largeCard = $('largeCard');
+  const largeTitle = $('largeTitle');
+  const pickBtn = $('pick');
+  const dirInput = $('dirInput');
+
+  let candidates = [];
+  let selectedName = null;
+  let signature = '';
+  let dirHandle = null;
+  let pendingHandle = null;
+  let pollTimer = null;
+
+  $('smallTitle').style.fontSize = SMALL_TITLE_PX + 'px';
+
+  function setLargeSize(w, h) {
+    largeCard.style.width = w + 'px';
+    largeCard.style.height = h + 'px';
+    largeTitle.style.fontSize = SMALL_TITLE_PX * Math.sqrt((w * h) / (SMALL_W * SMALL_H)) + 'px';
+  }
+  setLargeSize(960, 540);
+
+  largeImg.addEventListener('load', () => setLargeSize(largeImg.naturalWidth, largeImg.naturalHeight));
+
+  function select(item) {
+    selectedName = item.name;
+    smallImg.src = item.url;
+    largeImg.src = item.url;
+    smallImg.hidden = false;
+    largeImg.hidden = false;
+    document.querySelectorAll('.item').forEach((el) => {
+      el.setAttribute('aria-pressed', String(el.dataset.name === item.name));
+    });
+  }
+
+  function render() {
+    const rec = $('recommended');
+    const oth = $('others');
+    rec.replaceChildren();
+    oth.replaceChildren();
+    for (const item of candidates) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'item';
+      btn.title = item.name;
+      btn.dataset.name = item.name;
+      btn.setAttribute('aria-pressed', String(item.name === selectedName));
+      const img = document.createElement('img');
+      img.src = item.thumb || item.url;
+      img.alt = '';
+      img.loading = 'lazy';
+      const label = document.createElement('span');
+      label.textContent = item.name;
+      btn.append(img, label);
+      btn.addEventListener('click', () => select(item));
+      (item.name.startsWith('推荐') ? rec : oth).append(btn);
+    }
+    for (const grid of [rec, oth]) {
+      if (!grid.children.length) {
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = '没有图片';
+        grid.append(p);
+      }
+    }
+    $('hint').hidden = candidates.length > 0;
+  }
+
+  const byName = (a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+
+  function showCandidates(items) {
+    candidates = items;
+    render();
+    const keep = candidates.find((c) => c.name === selectedName);
+    const first = candidates.find((c) => c.name.startsWith('推荐')) || candidates[0];
+    if (keep) select(keep);
+    else if (first) select(first);
+  }
+
+  function setCandidates(files) {
+    const list = files.filter((f) => IMAGE_RE.test(f.name)).sort(byName);
+    const sig = list.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('|');
+    if (sig === signature) return;
+    signature = sig;
+    candidates.forEach((c) => URL.revokeObjectURL(c.url));
+    showCandidates(list.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })));
+  }
+
+  // 网页版（GitHub Pages）：候选图和页面一起上传，清单在 候选图/list.json，缩略图在 缩略图/
+  async function loadBundled() {
+    try {
+      const res = await fetch('候选图/list.json', { cache: 'no-cache' });
+      if (!res.ok) return false;
+      const items = (await res.json()).map((name) => ({
+        name,
+        url: '候选图/' + encodeURIComponent(name),
+        thumb: '缩略图/' + encodeURIComponent(name) + '.jpg',
+      }));
+      showCandidates(items.sort(byName));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function scan() {
+    const files = [];
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind === 'file' && IMAGE_RE.test(entry.name)) files.push(await entry.getFile());
+    }
+    setCandidates(files);
+  }
+
+  async function connect(handle) {
+    dirHandle = handle;
+    await scan();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => scan().catch(() => {}), POLL_MS);
+    pickBtn.textContent = '重新选择';
+  }
+
+  // 记住上次选的文件夹，下次打开页面时一键读取
+  function idb(mode, run) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('fuyao-cover-preview', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('handles');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction('handles', mode);
+        const req = run(tx.objectStore('handles'));
+        tx.oncomplete = () => resolve(req.result);
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }
+  const saveHandle = (h) => idb('readwrite', (s) => s.put(h, 'dir')).catch(() => {});
+  const loadHandle = () => idb('readonly', (s) => s.get('dir')).catch(() => null);
+
+  pickBtn.addEventListener('click', async () => {
+    if (pendingHandle) {
+      const h = pendingHandle;
+      pendingHandle = null;
+      if ((await h.requestPermission({ mode: 'read' })) === 'granted') return connect(h);
+    }
+    if ('showDirectoryPicker' in window) {
+      try {
+        const h = await window.showDirectoryPicker({ id: 'fuyao-candidates', mode: 'read' });
+        await saveHandle(h);
+        return connect(h);
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+    }
+    dirInput.click();
+  });
+
+  dirInput.addEventListener('change', () => {
+    const files = [...dirInput.files].filter((f) => (f.webkitRelativePath || f.name).split('/').length <= 2);
+    setCandidates(files);
+    dirInput.value = '';
+  });
+
+  (async () => {
+    // 网页版读到打包的候选图，就不显示选文件夹的按钮和提示；本地直接打开时照旧选文件夹
+    if (location.protocol !== 'file:') {
+      pickBtn.hidden = true;
+      $('hint').hidden = true;
+      if (await loadBundled()) return;
+      pickBtn.hidden = false;
+      $('hint').hidden = false;
+    }
+    if (!('showDirectoryPicker' in window)) return;
+    const h = await loadHandle();
+    if (!h) return;
+    if ((await h.queryPermission({ mode: 'read' })) === 'granted') return connect(h);
+    pendingHandle = h;
+    pickBtn.textContent = `读取“${h.name}”`;
+  })();
+</script>
+</body>
+</html>
